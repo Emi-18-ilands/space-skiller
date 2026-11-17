@@ -1,0 +1,130 @@
+<!doctype html>
+<html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Space Skiller</title>
+<style>
+body{background:#0b0e14;color:#cfd6e4;font:15px/1.45 ui-monospace,Menlo,Consolas,monospace;max-width:640px;margin:24px auto;padding:0 14px}
+h1{font-size:18px;letter-spacing:.5px;margin:0 0 4px}
+.sub{color:#5b6475;font-size:12px;margin-bottom:18px}
+.skill{margin:0 0 14px}
+.row{display:flex;justify-content:space-between;font-size:13px}
+.bar{height:8px;background:#1a2030;border-radius:2px;overflow:hidden;margin:4px 0}
+.fill{height:100%;background:#3f7bd6;width:0}
+.fill.ice{background:#3fb6c4}.fill.fab{background:#c4a23f}
+.lv{color:#8ea0bb}
+button{background:#1a2233;color:#cfd6e4;border:1px solid #2c3a55;border-radius:4px;padding:8px 14px;font:inherit;cursor:pointer;margin:4px 6px 4px 0;touch-action:manipulation}
+button:active{background:#243049}
+button:disabled{opacity:.35;cursor:default}
+#log{margin-top:18px;border-top:1px solid #1c2333;padding-top:10px;font-size:13px;color:#9aa6bb}
+#log div{margin:2px 0;white-space:pre-wrap}
+#log .n{color:#5b6475}
+.cap{color:#6b7688;font-size:12px}
+</style></head><body>
+<h1>SPACE SKILLER</h1><div class="sub">baseline loop — numbers only, cost 1, b 1.20, cap 20</div>
+
+<div class="skill" id="s-ore"><div class="row"><span>Ore <span class="lv" id="ore-lv">L1</span></span><span class="cap" id="ore-cap">cap 20</span></div><div class="bar"><div class="fill" id="ore-bar"></div></div><div class="cap" id="ore-info"></div></div>
+<div class="skill" id="s-ice"><div class="row"><span>Space fishing <span class="lv" id="ice-lv">L1</span></span><span class="cap" id="ice-cap">cap 20</span></div><div class="bar"><div class="fill ice" id="ice-bar"></div></div><div class="cap" id="ice-info"></div></div>
+<div class="skill" id="s-fab"><div class="row"><span>Fabrication <span class="lv" id="fab-lv">L1</span></span><span class="cap" id="fab-cap">locked</span></div><div class="bar"><div class="fill fab" id="fab-bar"></div></div><div class="cap" id="fab-info"></div></div>
+
+<div>
+<button id="mine">⛏ Mine (hold)</button>
+<button id="fish">🎣 Space fish (hold)</button>
+<button id="craft" disabled>⚙ Fab a part</button>
+</div>
+<div class="cap" id="manual"></div>
+<div id="log"></div>
+
+<script>
+const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
+const S={ore:{lvl:1,xp:0},ice:{lvl:1,xp:0},fab:{lvl:1,xp:0,unlocked:false}};
+let capBonus={ore:0,ice:0};
+const need=l=>10*Math.pow(B,l-1);
+
+function add(skill,frac,dt){
+  const s=S[skill];
+  if(skill==='fab'&&!S.fab.unlocked)return;
+  if(s.lvl>=CAP)return;
+  s.xp+=s.lvl*frac*dt/60;
+  while(s.xp>=need(s.lvl)&&s.lvl<CAP){s.xp-=need(s.lvl);s.lvl++;log(skill+' → L'+s.lvl);}
+  if(s.lvl>=CAP)s.xp=Math.min(s.xp,need(CAP));
+}
+function unlockFab(){ if(!S.fab.unlocked&&S.ore.lvl>=10&&S.ice.lvl>=10){S.fab.unlocked=true;log('Fabrication online: parts are a thing now.');return true;} return false;}
+function log(t){logLines.unshift(t);if(logLines.length>40)logLines.pop();renderLog();}
+function renderLog(){document.getElementById('log').innerHTML=logLines.map(t=>`<div><span class=n>›</span> ${t}</div>`).join('');}
+
+/* ---- save / offline accrual ---- */
+function save(){
+  try{
+    localStorage.setItem(KEY,JSON.stringify({v:1,S:S,cb:capBonus,t:Date.now()}));
+  }catch(e){}
+}
+function load(){
+  let raw=null;try{raw=localStorage.getItem(KEY);}catch(e){}
+  if(!raw)return 0;
+  let d=null;try{d=JSON.parse(raw);}catch(e){return 0;}
+  if(!d||!d.S||!d.S.ore)return 0;
+  S.ore=d.S.ore;S.ice=d.S.ice;S.fab=d.S.fab;
+  if(!S.fab.unlocked)S.fab.unlocked=false;
+  if(d.cb)capBonus=d.cb;
+  const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,OFF_CAP));
+  if(secs<5)return 0;
+  const before={ore:S.ore.lvl,ice:S.ice.lvl,fab:S.fab.lvl};
+  // 50% rate, stepped at 1s so the cross-gate still fires in the right order
+  let left=secs;
+  while(left>0){
+    const dt=Math.min(1,left);left-=dt;
+    add('ore',OFF_RATE,dt);add('ice',OFF_RATE,dt);unlockFab();add('fab',OFF_RATE,dt);
+  }
+  const g=(a,b)=>{const d=b-a;return d?('+'+d):'—';};
+  log(`Back after ${dur(secs)}. while away (50%): ore ${g(before.ore,S.ore.lvl)}, ice ${g(before.ice,S.ice.lvl)}, fab ${g(before.fab,S.fab.lvl)}`);
+  return secs;
+}
+function dur(s){
+  const h=Math.floor(s/3600),m=Math.round((s%3600)/60);
+  return h?(h+'h '+(m?m+'m':'')):(m+'m');
+}
+
+let hold=null,last=performance.now(),logLines=[],saveAt=0;
+let lastSave=Date.now();
+function tick(){
+  const now=performance.now(),dt=Math.min((now-last)/1000,0.5);last=now;
+  const mf=(hold==='ore'?1.4:1), ff=(hold==='ice'?1.4:1);
+  add('ore',mf,dt);add('ice',ff,dt);
+  unlockFab();
+  document.getElementById('craft').disabled=!S.fab.unlocked;
+  if(S.fab.unlocked)add('fab',1,dt);
+  if(hold==='ore'&&S.ore.lvl<CAP)capBonus.ore+=0.10*dt/60;
+  if(hold==='ice'&&S.ice.lvl<CAP)capBonus.ice+=0.10*dt/60;
+  if(Date.now()-lastSave>5000){lastSave=Date.now();save();}
+  render();requestAnimationFrame(tick);
+}
+function render(){
+  set('ore');set('ice');
+  const f=S.fab;
+  document.getElementById('fab-lv').textContent=S.fab.unlocked?'L'+f.lvl:'L1';
+  document.getElementById('fab-cap').textContent=S.fab.unlocked?(f.lvl<CAP?'cap 20':'CAPPED 20'):'locked (ore10+ice10)';
+  document.getElementById('fab-bar').style.width=(S.fab.unlocked?(f.lvl<CAP?Math.min(f.xp/need(f.lvl),1)*100:100):0)+'%';
+  document.getElementById('fab-info').textContent=S.fab.unlocked?(f.lvl<CAP?`${f.xp.toFixed(1)} / ${need(f.lvl).toFixed(1)} to L${f.lvl+1} @ ${f.lvl}/min`:'watching the cap'):'';
+  document.getElementById('manual').textContent=`manual: +${capBonus.ore.toFixed(2)} ore, +${capBonus.ice.toFixed(2)} ice permanent rate`;
+}
+function set(k){
+  const s=S[k];
+  document.getElementById(k+'-lv').textContent='L'+s.lvl;
+  document.getElementById(k+'-cap').textContent=(s.lvl<CAP?'cap 20':'CAPPED 20');
+  document.getElementById(k+'-bar').style.width=(s.lvl<CAP?Math.min(s.xp/need(s.lvl),1)*100:100)+'%';
+  document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min`:'watching the cap';
+}
+function bind(id,k){
+  const b=document.getElementById(id);
+  const on=e=>{e.preventDefault();hold=k;};
+  const off=()=>{if(hold===k)hold=null;};
+  b.addEventListener('mousedown',on);b.addEventListener('touchstart',on,{passive:false});
+  b.addEventListener('mouseup',off);b.addEventListener('mouseleave',off);b.addEventListener('touchend',off);b.addEventListener('touchcancel',off);
+}
+bind('mine','ore');bind('fish','ice');
+document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
+window.addEventListener('pagehide',save);
+
+const away=load();
+if(!away)log('A new save. Ore 1, space fishing 1.');
+requestAnimationFrame(tick);
+</script></body></html>
