@@ -37,7 +37,7 @@ button:disabled{opacity:.35;cursor:default}
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
 const S={ore:{lvl:1,xp:0},ice:{lvl:1,xp:0},fab:{lvl:1,xp:0,unlocked:false}};
 let capBonus={ore:0,ice:0};
-const need=l=>10*Math.pow(B,l-1);
+const need=l=>l<2?3:10*Math.pow(B,l-1);
 
 function add(skill,frac,dt){
   const s=S[skill];
