@@ -11,8 +11,8 @@ h1{font-size:18px;letter-spacing:.5px;margin:0 0 4px}
 .fill{height:100%;background:#3f7bd6;width:0}
 .fill.ice{background:#3fb6c4}.fill.fab{background:#c4a23f}
 .lv{color:#8ea0bb}
-button{background:#1a2233;color:#cfd6e4;border:1px solid #2c3a55;border-radius:4px;padding:8px 14px;font:inherit;cursor:pointer;margin:4px 6px 4px 0;touch-action:manipulation}
-button:active{background:#243049}
+button{background:#1a2233;color:#cfd6e4;border:1px solid #2c3a55;border-radius:4px;padding:10px 16px;font:inherit;cursor:pointer;margin:4px 6px 4px 0;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+button.on{background:#2b3d5f;border-color:#4a6699}
 button:disabled{opacity:.35;cursor:default}
 #log{margin-top:18px;border-top:1px solid #1c2333;padding-top:10px;font-size:13px;color:#9aa6bb}
 #log div{margin:2px 0;white-space:pre-wrap}
@@ -26,8 +26,8 @@ button:disabled{opacity:.35;cursor:default}
 <div class="skill" id="s-fab"><div class="row"><span>Fabrication <span class="lv" id="fab-lv">L1</span></span><span class="cap" id="fab-cap">locked</span></div><div class="bar"><div class="fill fab" id="fab-bar"></div></div><div class="cap" id="fab-info"></div></div>
 
 <div>
-<button id="mine">⛏ Mine (hold)</button>
-<button id="fish">🎣 Space fish (hold)</button>
+<button id="mine">⛏ Mine</button>
+<button id="fish">🎣 Space fish</button>
 <button id="craft" disabled>⚙ Fab a part</button>
 </div>
 <div class="cap" id="manual"></div>
@@ -43,7 +43,8 @@ function add(skill,frac,dt){
   const s=S[skill];
   if(skill==='fab'&&!S.fab.unlocked)return;
   if(s.lvl>=CAP)return;
-  s.xp+=s.lvl*frac*dt/60;
+  const rate=s.lvl+(skill==='fab'?0:(capBonus[skill]||0));
+  s.xp+=rate*frac*dt/60;
   while(s.xp>=need(s.lvl)&&s.lvl<CAP){s.xp-=need(s.lvl);s.lvl++;log(skill+' → L'+s.lvl);}
   if(s.lvl>=CAP)s.xp=Math.min(s.xp,need(CAP));
 }
@@ -104,7 +105,7 @@ function render(){
   document.getElementById('fab-cap').textContent=S.fab.unlocked?(f.lvl<CAP?'cap 20':'CAPPED 20'):'locked (ore10+ice10)';
   document.getElementById('fab-bar').style.width=(S.fab.unlocked?(f.lvl<CAP?Math.min(f.xp/need(f.lvl),1)*100:100):0)+'%';
   document.getElementById('fab-info').textContent=S.fab.unlocked?(f.lvl<CAP?`${f.xp.toFixed(1)} / ${need(f.lvl).toFixed(1)} to L${f.lvl+1} @ ${f.lvl}/min`:'watching the cap'):'';
-  document.getElementById('manual').textContent=`manual: +${capBonus.ore.toFixed(2)} ore, +${capBonus.ice.toFixed(2)} ice permanent rate`;
+  document.getElementById('manual').textContent=`hands-on: +${capBonus.ore.toFixed(3)} ore, +${capBonus.ice.toFixed(3)} ice capacity (permanent)`;
 }
 function set(k){
   const s=S[k];
@@ -113,14 +114,39 @@ function set(k){
   document.getElementById(k+'-bar').style.width=(s.lvl<CAP?Math.min(s.xp/need(s.lvl),1)*100:100)+'%';
   document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min`:'watching the cap';
 }
+function creditTap(k,secs){
+  if(!(secs>0))return;
+  add(k,1.4,secs);
+  if(k==='ore'&&S.ore.lvl<CAP)capBonus.ore+=0.10*secs/60;
+  if(k==='ice'&&S.ice.lvl<CAP)capBonus.ice+=0.10*secs/60;
+  render();
+  save();
+}
 function bind(id,k){
   const b=document.getElementById(id);
-  const on=e=>{e.preventDefault();hold=k;};
-  const off=()=>{if(hold===k)hold=null;};
-  b.addEventListener('mousedown',on);b.addEventListener('touchstart',on,{passive:false});
-  b.addEventListener('mouseup',off);b.addEventListener('mouseleave',off);b.addEventListener('touchend',off);b.addEventListener('touchcancel',off);
+  let t0=0;
+  const press=e=>{
+    e.preventDefault();
+    if(hold&&hold!==k)hold=null;
+    hold=k;t0=performance.now();b.classList.add('on');
+    if(b.setPointerCapture&&e.pointerId!==undefined){try{b.setPointerCapture(e.pointerId);}catch(_){}}
+  };
+  const release=()=>{
+    if(hold!==k)return;
+    const secs=(performance.now()-t0)/1000;
+    hold=null;b.classList.remove('on');
+    // a phone tap is shorter than a frame's worth of hold; give it a real second
+    if(secs<1)creditTap(k,1-secs);
+  };
+  b.addEventListener('pointerdown',press);
+  b.addEventListener('pointerup',release);
+  b.addEventListener('pointercancel',release);
+  b.addEventListener('lostpointercapture',release);
+  // keyboard / accessibility
+  b.addEventListener('click',e=>{if(!e.detail)creditTap(k,1);});
 }
 bind('mine','ore');bind('fish','ice');
+if(typeof window!=='undefined')window.__sk={S,capBonus,creditTap,add,need};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
 
