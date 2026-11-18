@@ -19,7 +19,7 @@ button:disabled{opacity:.35;cursor:default}
 #log .n{color:#5b6475}
 .cap{color:#6b7688;font-size:12px}
 </style></head><body>
-<h1>SPACE SKILLER</h1><div class="sub">baseline loop — numbers only, cost 1, b 1.20, cap 20</div>
+<h1>SPACE SKILLER</h1><div class="sub">one skill at a time. b 1.20, cap 20. tap a button to switch.</div>
 
 <div class="skill" id="s-ore"><div class="row"><span>Ore <span class="lv" id="ore-lv">L1</span></span><span class="cap" id="ore-cap">cap 20</span></div><div class="bar"><div class="fill" id="ore-bar"></div></div><div class="cap" id="ore-info"></div></div>
 <div class="skill" id="s-ice"><div class="row"><span>Space fishing <span class="lv" id="ice-lv">L1</span></span><span class="cap" id="ice-cap">cap 20</span></div><div class="bar"><div class="fill ice" id="ice-bar"></div></div><div class="cap" id="ice-info"></div></div>
@@ -37,6 +37,7 @@ button:disabled{opacity:.35;cursor:default}
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
 const S={ore:{lvl:1,xp:0},ice:{lvl:1,xp:0},fab:{lvl:1,xp:0,unlocked:false}};
 let capBonus={ore:0,ice:0};
+let active='ore';
 const need=l=>l<2?3:10*Math.pow(B,l-1);
 
 function add(skill,frac,dt){
@@ -55,7 +56,7 @@ function renderLog(){document.getElementById('log').innerHTML=logLines.map(t=>`<
 /* ---- save / offline accrual ---- */
 function save(){
   try{
-    localStorage.setItem(KEY,JSON.stringify({v:1,S:S,cb:capBonus,t:Date.now()}));
+    localStorage.setItem(KEY,JSON.stringify({v:2,S:S,cb:capBonus,t:Date.now(),a:active}));
   }catch(e){}
 }
 function load(){
@@ -66,17 +67,20 @@ function load(){
   S.ore=d.S.ore;S.ice=d.S.ice;S.fab=d.S.fab;
   if(!S.fab.unlocked)S.fab.unlocked=false;
   if(d.cb)capBonus=d.cb;
+  if(d.a==='ore'||d.a==='ice'||d.a==='fab')active=d.a;
   const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,OFF_CAP));
   if(secs<5)return 0;
+  if(active==='fab'&&!S.fab.unlocked)active='ore';
   const before={ore:S.ore.lvl,ice:S.ice.lvl,fab:S.fab.lvl};
-  // 50% rate, stepped at 1s so the cross-gate still fires in the right order
+  const name={ore:'ore',ice:'space fishing',fab:'fabrication'}[active];
+  // 50% rate, stepped at 1s
   let left=secs;
   while(left>0){
     const dt=Math.min(1,left);left-=dt;
-    add('ore',OFF_RATE,dt);add('ice',OFF_RATE,dt);unlockFab();add('fab',OFF_RATE,dt);
+    add(active,OFF_RATE,dt);
   }
-  const g=(a,b)=>{const d=b-a;return d?('+'+d):'—';};
-  log(`Back after ${dur(secs)}. while away (50%): ore ${g(before.ore,S.ore.lvl)}, ice ${g(before.ice,S.ice.lvl)}, fab ${g(before.fab,S.fab.lvl)}`);
+  const gone=S[active].lvl-before[active];
+  log(`Back after ${dur(secs)}. ${name} ran in the background (50%)${gone?' → L'+S[active].lvl:' and did not level'}.`);
   return secs;
 }
 function dur(s){
@@ -88,24 +92,28 @@ let hold=null,last=performance.now(),logLines=[],saveAt=0;
 let lastSave=Date.now();
 function tick(){
   const now=performance.now(),dt=Math.min((now-last)/1000,0.5);last=now;
-  const mf=(hold==='ore'?1.4:1), ff=(hold==='ice'?1.4:1);
-  add('ore',mf,dt);add('ice',ff,dt);
+  const mf=(hold===active?1.4:1);
+  if(active!=='fab'||S.fab.unlocked)add(active,mf,dt);
   unlockFab();
   document.getElementById('craft').disabled=!S.fab.unlocked;
-  if(S.fab.unlocked)add('fab',1,dt);
-  if(hold==='ore'&&S.ore.lvl<CAP)capBonus.ore+=0.10*dt/60;
-  if(hold==='ice'&&S.ice.lvl<CAP)capBonus.ice+=0.10*dt/60;
+  if(hold===active&&active!=='fab'&&S[active].lvl<CAP)capBonus[active]+=0.10*dt/60;
   if(Date.now()-lastSave>5000){lastSave=Date.now();save();}
   render();requestAnimationFrame(tick);
 }
 function render(){
   set('ore');set('ice');
+  for(const k of ['ore','ice','fab']){
+    const row=document.getElementById('s-'+k);
+    if(row)row.style.opacity=(k===active?1:0.5);
+  }
   const f=S.fab;
   document.getElementById('fab-lv').textContent=S.fab.unlocked?'L'+f.lvl:'L1';
   document.getElementById('fab-cap').textContent=S.fab.unlocked?(f.lvl<CAP?'cap 20':'CAPPED 20'):'locked (ore10+ice10)';
   document.getElementById('fab-bar').style.width=(S.fab.unlocked?(f.lvl<CAP?Math.min(f.xp/need(f.lvl),1)*100:100):0)+'%';
   document.getElementById('fab-info').textContent=S.fab.unlocked?(f.lvl<CAP?`${f.xp.toFixed(1)} / ${need(f.lvl).toFixed(1)} to L${f.lvl+1} @ ${f.lvl}/min`:'watching the cap'):'';
-  document.getElementById('manual').textContent=`hands-on: +${capBonus.ore.toFixed(3)} ore, +${capBonus.ice.toFixed(3)} ice capacity (permanent)`;
+  const nm={ore:'Ore',ice:'Space fishing',fab:'Fabrication'}[active];
+  const capped=S[active].lvl>=CAP;
+  document.getElementById('manual').textContent=(capped?`${nm} is capped. pick another skill.`:`only ${nm} is ticking. tap another button to switch.`)+` hands-on so far: +${capBonus.ore.toFixed(2)} ore / +${capBonus.ice.toFixed(2)} ice cap`;
 }
 function set(k){
   const s=S[k];
@@ -115,7 +123,8 @@ function set(k){
   document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min`:'watching the cap';
 }
 function creditTap(k,secs){
-  if(!(secs>0))return;
+  active=k;
+  if(!(secs>0)){render();return;}
   add(k,1.4,secs);
   if(k==='ore'&&S.ore.lvl<CAP)capBonus.ore+=0.10*secs/60;
   if(k==='ice'&&S.ice.lvl<CAP)capBonus.ice+=0.10*secs/60;
@@ -127,6 +136,7 @@ function bind(id,k){
   let t0=0;
   const press=e=>{
     e.preventDefault();
+    active=k;
     if(hold&&hold!==k)hold=null;
     hold=k;t0=performance.now();b.classList.add('on');
     if(b.setPointerCapture&&e.pointerId!==undefined){try{b.setPointerCapture(e.pointerId);}catch(_){}}
@@ -151,6 +161,6 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
 
 const away=load();
-if(!away)log('A new save. Ore 1, space fishing 1.');
+if(!away)log('A new save. Ore is ticking. Only one skill runs at a time.');
 requestAnimationFrame(tick);
 </script></body></html>
