@@ -18,6 +18,10 @@ button:disabled{opacity:.35;cursor:default}
 #log div{margin:2px 0;white-space:pre-wrap}
 #log .n{color:#5b6475}
 .cap{color:#6b7688;font-size:12px}
+#mlog{margin-top:24px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#7c879b}
+#mlog h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
+#mlog div{margin:2px 0}
+#mlog .d{color:#414a5c}
 </style></head><body>
 <h1>SPACE SKILLER</h1><div class="sub">one skill at a time. b 1.20, cap 20. tap a button to switch.</div>
 
@@ -32,6 +36,7 @@ button:disabled{opacity:.35;cursor:default}
 </div>
 <div class="cap" id="manual"></div>
 <div id="log"></div>
+<div id="mlog"></div>
 
 <script>
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
@@ -159,6 +164,16 @@ bind('mine','ore');bind('fish','ice');
 if(typeof window!=='undefined')window.__sk={S,capBonus,creditTap,add,need};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
+
+const MAKER=[
+['nov 16','first build: ore, space fishing, one curve'],
+['nov 16','your bug. iphone long-press killed the hold. fixed with pointer capture'],
+['nov 16','your bug. the hands-on bonus was display only. it feeds the rate now'],
+['nov 17','fabrication opens at ore 10 and ice 10'],
+['nov 18','one skill at a time. tap a button to switch. both ticked before, which was never a choice'],
+['nov 18','while away, only the skill you left running ticks. 50%, 8h cap'],
+['nov 18','re-timed on the served file, not on paper. one skill L1 to L20 is 127 min']];
+document.getElementById('mlog').innerHTML='<h2>MAKER LOG</h2>'+MAKER.slice().reverse().map(([d,t])=>`<div><span class=d>${d}</span> ${t}</div>`).join('');
 
 const away=load();
 if(!away)log('A new save. Ore is ticking. Only one skill runs at a time.');
