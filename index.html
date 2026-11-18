@@ -18,16 +18,28 @@ button:disabled{opacity:.35;cursor:default}
 #log div{margin:2px 0;white-space:pre-wrap}
 #log .n{color:#5b6475}
 .cap{color:#6b7688;font-size:12px}
+.tier{color:#7f8ea8;font-size:11px;letter-spacing:.3px;margin-top:2px}
+.tier b{color:#a8b8d0;font-weight:normal}
+#inv{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#8ea0bb}
+#inv h2,#tools h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
+#tools{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12.5px}
+.tool{display:block;width:100%;text-align:left;margin:0 0 6px;padding:8px 10px;border:1px solid #212a3d;background:#101623;border-radius:4px;color:#8b97ab;font-size:12.5px;line-height:1.4}
+.tool.ready{border-color:#3f7bd6;color:#dbe4f2}
+.tool.built{border-color:#26313f;color:#4d5a6d;background:#0d121b}
+.tool .nm{color:#cfd6e4}
+.tool.built .nm{color:#5f6d82}
+.tool .eff{color:#8ea0bb}
+.tool .cost{color:#6b7688}
 #mlog{margin-top:24px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#7c879b}
 #mlog h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
 #mlog div{margin:2px 0}
 #mlog .d{color:#414a5c}
 </style></head><body>
-<h1>SPACE SKILLER</h1><div class="sub">one skill at a time. b 1.20, cap 20. tap a button to switch.</div>
+<h1>SPACE SKILLER</h1><div class="sub">one skill at a time. b 1.20, cap 20. tools raise yield, not speed.</div>
 
-<div class="skill" id="s-ore"><div class="row"><span>Ore <span class="lv" id="ore-lv">L1</span></span><span class="cap" id="ore-cap">cap 20</span></div><div class="bar"><div class="fill" id="ore-bar"></div></div><div class="cap" id="ore-info"></div></div>
-<div class="skill" id="s-ice"><div class="row"><span>Space fishing <span class="lv" id="ice-lv">L1</span></span><span class="cap" id="ice-cap">cap 20</span></div><div class="bar"><div class="fill ice" id="ice-bar"></div></div><div class="cap" id="ice-info"></div></div>
-<div class="skill" id="s-fab"><div class="row"><span>Fabrication <span class="lv" id="fab-lv">L1</span></span><span class="cap" id="fab-cap">locked</span></div><div class="bar"><div class="fill fab" id="fab-bar"></div></div><div class="cap" id="fab-info"></div></div>
+<div class="skill" id="s-ore"><div class="row"><span>Ore <span class="lv" id="ore-lv">L1</span></span><span class="cap" id="ore-cap">cap 20</span></div><div class="bar"><div class="fill" id="ore-bar"></div></div><div class="cap" id="ore-info"></div><div class="tier" id="ore-tier"></div></div>
+<div class="skill" id="s-ice"><div class="row"><span>Space fishing <span class="lv" id="ice-lv">L1</span></span><span class="cap" id="ice-cap">cap 20</span></div><div class="bar"><div class="fill ice" id="ice-bar"></div></div><div class="cap" id="ice-info"></div><div class="tier" id="ice-tier"></div></div>
+<div class="skill" id="s-fab"><div class="row"><span>Fabrication <span class="lv" id="fab-lv">L1</span></span><span class="cap" id="fab-cap">locked</span></div><div class="bar"><div class="fill fab" id="fab-bar"></div></div><div class="cap" id="fab-info"></div><div class="tier" id="fab-tier"></div></div>
 
 <div>
 <button id="mine">⛏ Mine</button>
@@ -35,6 +47,8 @@ button:disabled{opacity:.35;cursor:default}
 <button id="craft" disabled>⚙ Fab a part</button>
 </div>
 <div class="cap" id="manual"></div>
+<div id="inv"><h2>HOLD</h2><div id="inv-line">nothing yet</div></div>
+<div id="tools"><h2>TOOLS</h2><div id="tool-list"></div></div>
 <div id="log"></div>
 <div id="mlog"></div>
 
@@ -42,8 +56,54 @@ button:disabled{opacity:.35;cursor:default}
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
 const S={ore:{lvl:1,xp:0},ice:{lvl:1,xp:0},fab:{lvl:1,xp:0,unlocked:false}};
 let capBonus={ore:0,ice:0};
+let inv={},owned=[];
 let active='ore';
 const need=l=>l<2?3:10*Math.pow(B,l-1);
+
+/* ---- tiers: the ore gets a name as the skill gets better ---- */
+const TIERS={
+ ore:[{l:1,n:'grit'},{l:5,n:'nickel'},{l:10,n:'silicate'},{l:15,n:'heavy'},{l:20,n:'void'}],
+ ice:[{l:1,n:'frost'},{l:5,n:'deep frost'},{l:10,n:'humming ice'},{l:15,n:'glass ice'},{l:20,n:'void ice'}],
+ fab:[{l:1,n:'parts'}]
+};
+const TIER_MULT=1.5;
+function tierIdx(k,l){let i=0;for(let j=0;j<TIERS[k].length;j++)if(l>=TIERS[k][j].l)i=j;return i;}
+function tierMat(k){return TIERS[k][tierIdx(k,S[k].lvl)].n;}
+function tierNext(k){return TIERS[k][tierIdx(k,S[k].lvl)+1]||null;}
+function gradeMult(k){return Math.pow(TIER_MULT,tierIdx(k,S[k].lvl));}
+
+/* ---- tools: cost comes from one skill, the bonus lands on another ---- */
+const TOOLS=[
+ {n:'Ore drill',    k:'ore', b:0.20, gate:0,  cost:{ore:60}},
+ {n:'Sonar line',   k:'ice', b:0.20, gate:0,  cost:{ice:60}},
+ {n:'Ice auger',    k:'ore', b:0.25, gate:3,  cost:{ice:200,ore:100,parts:10}},
+ {n:'Melt rig',     k:'ice', b:0.25, gate:3,  cost:{ore:200,ice:100,parts:10}},
+ {n:'Deep drill',   k:'ore', b:0.30, gate:7,  cost:{ore:400,parts:60}},
+ {n:'Long line',    k:'ice', b:0.30, gate:7,  cost:{ice:400,parts:60}},
+ {n:'Assembler',    k:'fab', b:0.40, gate:10, cost:{ore:800,ice:800,parts:120}},
+ {n:'Void cutter',  k:'ore', b:0.40, gate:14, cost:{ore:1500,parts:300}},
+ {n:'Void trawl',   k:'ice', b:0.40, gate:14, cost:{ice:1500,parts:300}}
+];
+function toolBonus(k){let m=1;for(const i of owned)if(TOOLS[i].k===k)m+=TOOLS[i].b;return m;}
+const MAT={ore:'ore',ice:'ice',fab:'parts'};
+function yieldOf(k){return S[k].lvl*toolBonus(k)*gradeMult(k);} // units per minute
+function isOwned(i){return owned.indexOf(i)>=0;}
+function canBuild(i){
+  const t=TOOLS[i];
+  if(isOwned(i))return false;
+  if(t.gate>0){if(!S.fab.unlocked)return false;if(S.fab.lvl<t.gate)return false;}
+  for(const m in t.cost)if((inv[m]||0)<t.cost[m])return false;
+  return true;
+}
+function costStr(c){return Object.keys(c).map(m=>c[m]+' '+m).join(', ');}
+function buildTool(i){
+  if(!canBuild(i))return false;
+  const t=TOOLS[i];
+  for(const m in t.cost)inv[m]-=t.cost[m];
+  owned.push(i);
+  log(`Built: ${t.n} (${t.k} +${Math.round(t.b*100)}%). ${t.k} yield is now ${toolBonus(t.k).toFixed(2)}x.`);
+  save();return true;
+}
 
 function add(skill,frac,dt){
   const s=S[skill];
@@ -51,17 +111,23 @@ function add(skill,frac,dt){
   if(s.lvl>=CAP)return;
   const rate=s.lvl+(skill==='fab'?0:(capBonus[skill]||0));
   s.xp+=rate*frac*dt/60;
-  while(s.xp>=need(s.lvl)&&s.lvl<CAP){s.xp-=need(s.lvl);s.lvl++;log(skill+' → L'+s.lvl);}
+  inv[MAT[skill]]=(inv[MAT[skill]]||0)+yieldOf(skill)*frac*dt/60;
+  const wasGrade=tierMat(skill);
+  while(s.xp>=need(s.lvl)&&s.lvl<CAP){s.xp-=need(s.lvl);s.lvl++;
+    const nowGrade=tierMat(skill);
+    if(nowGrade!==wasGrade)log(skill+' → L'+s.lvl+'. Now pulling '+nowGrade+' ('+TIER_MULT+'x yield).');
+    else log(skill+' → L'+s.lvl);
+  }
   if(s.lvl>=CAP)s.xp=Math.min(s.xp,need(CAP));
 }
-function unlockFab(){ if(!S.fab.unlocked&&S.ore.lvl>=10&&S.ice.lvl>=10){S.fab.unlocked=true;log('Fabrication online: parts are a thing now.');return true;} return false;}
+function unlockFab(){ if(!S.fab.unlocked&&S.ore.lvl>=10&&S.ice.lvl>=10){S.fab.unlocked=true;log('Fabrication online: parts are a thing now, and parts build tools.');return true;} return false;}
 function log(t){logLines.unshift(t);if(logLines.length>40)logLines.pop();renderLog();}
 function renderLog(){document.getElementById('log').innerHTML=logLines.map(t=>`<div><span class=n>›</span> ${t}</div>`).join('');}
 
 /* ---- save / offline accrual ---- */
 function save(){
   try{
-    localStorage.setItem(KEY,JSON.stringify({v:2,S:S,cb:capBonus,t:Date.now(),a:active}));
+    localStorage.setItem(KEY,JSON.stringify({v:3,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active}));
   }catch(e){}
 }
 function load(){
@@ -72,13 +138,14 @@ function load(){
   S.ore=d.S.ore;S.ice=d.S.ice;S.fab=d.S.fab;
   if(!S.fab.unlocked)S.fab.unlocked=false;
   if(d.cb)capBonus=d.cb;
+  if(d.inv)inv=d.inv;
+  if(d.own)owned=d.own.filter(i=>i>=0&&i<TOOLS.length);
   if(d.a==='ore'||d.a==='ice'||d.a==='fab')active=d.a;
   const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,OFF_CAP));
   if(secs<5)return 0;
   if(active==='fab'&&!S.fab.unlocked)active='ore';
   const before={ore:S.ore.lvl,ice:S.ice.lvl,fab:S.fab.lvl};
   const name={ore:'ore',ice:'space fishing',fab:'fabrication'}[active];
-  // 50% rate, stepped at 1s
   let left=secs;
   while(left>0){
     const dt=Math.min(1,left);left-=dt;
@@ -93,7 +160,7 @@ function dur(s){
   return h?(h+'h '+(m?m+'m':'')):(m+'m');
 }
 
-let hold=null,last=performance.now(),logLines=[],saveAt=0;
+let hold=null,last=performance.now(),logLines=[],toolsAt=0;
 let lastSave=Date.now();
 function tick(){
   const now=performance.now(),dt=Math.min((now-last)/1000,0.5);last=now;
@@ -119,13 +186,45 @@ function render(){
   const nm={ore:'Ore',ice:'Space fishing',fab:'Fabrication'}[active];
   const capped=S[active].lvl>=CAP;
   document.getElementById('manual').textContent=(capped?`${nm} is capped. pick another skill.`:`only ${nm} is ticking. tap another button to switch.`)+` hands-on so far: +${capBonus.ore.toFixed(2)} ore / +${capBonus.ice.toFixed(2)} ice cap`;
+  renderInv();
+  if(Date.now()>toolsAt){toolsAt=Date.now()+500;renderTools();}
 }
 function set(k){
   const s=S[k];
   document.getElementById(k+'-lv').textContent='L'+s.lvl;
   document.getElementById(k+'-cap').textContent=(s.lvl<CAP?'cap 20':'CAPPED 20');
   document.getElementById(k+'-bar').style.width=(s.lvl<CAP?Math.min(s.xp/need(s.lvl),1)*100:100)+'%';
-  document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min`:'watching the cap';
+  const y=yieldOf(k).toFixed(1);
+  document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min · pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min`:`pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min, watching the cap`;
+  if(k==='fab'){
+    document.getElementById('fab-tier').textContent=S.fab.unlocked?'makes parts · each tool needs parts':'';
+  }else{
+    const nx=tierNext(k);
+    document.getElementById(k+'-tier').innerHTML='pulling <b>'+tierMat(k)+'</b>'+(nx?' · next: <b>'+nx.n+'</b> at L'+nx.l:' · last tier');
+  }
+}
+function renderInv(){
+  const keys=Object.keys(inv).filter(m=>(inv[m]||0)>=1);
+  document.getElementById('inv-line').textContent=keys.length?keys.map(m=>m+' '+Math.floor(inv[m])).join(' · '):'nothing yet';
+}
+function renderTools(){
+  const list=document.getElementById('tool-list');
+  let h='';
+  for(let i=0;i<TOOLS.length;i++){
+    const t=TOOLS[i];
+    const built=isOwned(i);
+    let st;
+    if(built)st='built';
+    else if(t.gate>0&&!S.fab.unlocked)st='fabrication first';
+    else if(t.gate>0&&S.fab.lvl<t.gate)st='needs fab L'+t.gate;
+    else if(!canBuild(i))st='short on materials';
+    else st='READY — tap to build';
+    const cls='tool'+(built?' built':(canBuild(i)?' ready':''));
+    h+=`<button class="${cls}" data-tool="${i}"><span class=nm>${t.n}</span> <span class=eff>· ${t.k} yield +${Math.round(t.b*100)}%</span><br><span class=cost>${costStr(t.cost)} · ${t.gate>0?'fab L'+t.gate:'field build'}</span> <span class=cost>· ${st}</span></button>`;
+  }
+  list.innerHTML=h;
+  const btns=list.querySelectorAll('[data-tool]');
+  for(const b of btns)b.addEventListener('click',()=>{buildTool(+b.dataset.tool);render();renderTools();});
 }
 function creditTap(k,secs){
   active=k;
@@ -150,18 +249,16 @@ function bind(id,k){
     if(hold!==k)return;
     const secs=(performance.now()-t0)/1000;
     hold=null;b.classList.remove('on');
-    // a phone tap is shorter than a frame's worth of hold; give it a real second
     if(secs<1)creditTap(k,1-secs);
   };
   b.addEventListener('pointerdown',press);
   b.addEventListener('pointerup',release);
   b.addEventListener('pointercancel',release);
   b.addEventListener('lostpointercapture',release);
-  // keyboard / accessibility
   b.addEventListener('click',e=>{if(!e.detail)creditTap(k,1);});
 }
 bind('mine','ore');bind('fish','ice');
-if(typeof window!=='undefined')window.__sk={S,capBonus,creditTap,add,need};
+if(typeof window!=='undefined')window.__sk={S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,renderTools:()=>renderTools(),render:()=>render()};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
 
@@ -172,7 +269,9 @@ const MAKER=[
 ['nov 17','fabrication opens at ore 10 and ice 10'],
 ['nov 18','one skill at a time. tap a button to switch. both ticked before, which was never a choice'],
 ['nov 18','while away, only the skill you left running ticks. 50%, 8h cap'],
-['nov 18','re-timed on the served file, not on paper. one skill L1 to L20 is 127 min']];
+['nov 18','re-timed on the served file, not on paper. one skill L1 to L20 is 127 min'],
+['nov 18','tiers: grit, nickel, silicate, heavy, void. a better grade every five levels, 1.5x yield each step'],
+['nov 18','nine tools. the cost comes from one skill and the bonus lands on another. parts are the middle']];
 document.getElementById('mlog').innerHTML='<h2>MAKER LOG</h2>'+MAKER.slice().reverse().map(([d,t])=>`<div><span class=d>${d}</span> ${t}</div>`).join('');
 
 const away=load();
