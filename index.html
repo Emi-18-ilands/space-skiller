@@ -22,9 +22,12 @@ button:disabled{opacity:.35;cursor:default}
 .tier b{color:#a8b8d0;font-weight:normal}
 #inv{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#8ea0bb}
 #inv h2,#tools h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
-#tools,#deep{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12.5px}
-#deep h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
+#tools,#deep,#kitchen{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12.5px}
+#deep h2,#kitchen h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
 #deep{display:none}
+#kitchen{display:none}
+#run{margin:0 0 14px;font-size:12px;color:#6b7688}
+#run b{color:#8ea0bb;font-weight:normal}
 .tool{display:block;width:100%;text-align:left;margin:0 0 6px;padding:8px 10px;border:1px solid #212a3d;background:#101623;border-radius:4px;color:#8b97ab;font-size:12.5px;line-height:1.4}
 .tool.ready{border-color:#3f7bd6;color:#dbe4f2}
 .tool.built{border-color:#26313f;color:#4d5a6d;background:#0d121b}
@@ -41,6 +44,7 @@ button:disabled{opacity:.35;cursor:default}
 #mlog .d{color:#414a5c}
 </style></head><body>
 <h1>SPACE SKILLER</h1><div class="sub">one skill at a time. tools raise yield, not speed. a better grade every five levels.</div>
+<div id="run"></div>
 
 <div class="skill" id="s-ore"><div class="row"><span>Ore <span class="lv" id="ore-lv">L1</span></span><span class="cap" id="ore-cap">cap 20</span></div><div class="bar"><div class="fill" id="ore-bar"></div></div><div class="cap" id="ore-info"></div><div class="tier" id="ore-tier"></div></div>
 <div class="skill" id="s-ice"><div class="row"><span>Space fishing <span class="lv" id="ice-lv">L1</span></span><span class="cap" id="ice-cap">cap 20</span></div><div class="bar"><div class="fill ice" id="ice-bar"></div></div><div class="cap" id="ice-info"></div><div class="tier" id="ice-tier"></div></div>
@@ -54,13 +58,23 @@ button:disabled{opacity:.35;cursor:default}
 <div class="cap" id="manual"></div>
 <div id="inv"><h2>HOLD</h2><div id="inv-line">nothing yet</div></div>
 <div id="tools"><h2>TOOLS</h2><div class="cap" id="built-line"></div><div id="tool-list"></div></div>
-<div id="deep"><h2>DEEP</h2><div class="cap" style="margin-bottom:8px">past the cap, each deep costs that skill's own material and raises its yield 0.3x. cost triples each time. no reset, no wipe.</div><div id="deep-list"></div></div>
+<div id="deep"><h2>DEEP</h2><div class="cap" style="margin-bottom:8px">past the cap, each deep costs that skill's own material and raises its yield 0.3x. cost triples each time. three deepenings and that skill is finished. no reset, no wipe.</div><div id="deep-list"></div><div class="cap" id="deep-done" style="margin-top:6px"></div></div>
+<div id="kitchen"><h2>KITCHEN</h2><div class="cap" style="margin-bottom:8px">opens when space fishing hits void ice at 20. each meal eats the ice you are already farming and buys back offline time. no reset.</div><div id="meal-list"></div></div>
 <div id="log"></div>
 <div id="mlog"></div>
 
 <script>
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
-const DEEP_BASE={ore:20000,ice:20000,fab:5000}, DEEP_MULT=0.3;
+const DEEP_BASE={ore:3000,ice:3000,fab:1000}, DEEP_MULT=0.3, DEEP_MAX=3;
+const COOK=[
+ {n:'Frost broth', c:{ice:1000}, a:1800},
+ {n:'Ice soup', c:{ice:3000,ore:1000}, a:1800},
+ {n:'Nickel stew', c:{ice:7000,ore:3000,parts:150}, a:3600},
+ {n:'Void consomme', c:{ice:16000,ore:8000,parts:500}, a:3600},
+ {n:'Deep tasting menu', c:{ice:40000,ore:20000,parts:1200}, a:7200}
+];
+let cooked=[], offExtra=0;
+function offCapSecs(){return OFF_CAP+offExtra;}
 const S={ore:{lvl:1,xp:0},ice:{lvl:1,xp:0},fab:{lvl:1,xp:0,unlocked:false}};
 let deep={ore:0,ice:0,fab:0};
 let capBonus={ore:0,ice:0};
@@ -116,6 +130,7 @@ function buildTool(i){
 /* ---- deep: past the cap the same skill keeps going ---- */
 function deepCost(k){return Math.round(DEEP_BASE[k]*Math.pow(3,deep[k]));}
 function canDeep(k){
+  if(deep[k]>=DEEP_MAX)return false;
   if(k==='fab'&&!S.fab.unlocked)return false;
   if(S[k].lvl<CAP)return false;
   return (inv[MAT[k]]||0)>=deepCost(k);
@@ -124,7 +139,8 @@ function deepBuild(k){
   if(!canDeep(k))return false;
   const c=deepCost(k);
   inv[MAT[k]]-=c;deep[k]++;
-  log(`${k} deep ${deep[k]}: ${MAT[k]} yield now ${yieldOf(k).toFixed(1)}/min (${(1+DEEP_MULT*deep[k]).toFixed(2)}x). next deep at ${deepCost(k)} ${MAT[k]}.`);
+  if(deep[k]>=DEEP_MAX)log(`${k} is fully deepened (3/3). ${k} yield stays at ${(1+DEEP_MULT*deep[k]).toFixed(2)}x. that branch is done.`);
+  else log(`${k} deep ${deep[k]}: ${MAT[k]} yield now ${yieldOf(k).toFixed(1)}/min (${(1+DEEP_MULT*deep[k]).toFixed(2)}x). next deep at ${deepCost(k)} ${MAT[k]}.`);
   save();return true;
 }
 
@@ -167,7 +183,7 @@ function renderLog(){document.getElementById('log').innerHTML=logLines.map(t=>`<
 /* ---- save / offline accrual ---- */
 function save(){
   try{
-    localStorage.setItem(KEY,JSON.stringify({v:4,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active,dp:deep}));
+    localStorage.setItem(KEY,JSON.stringify({v:5,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active,dp:deep,ck:cooked}));
   }catch(e){}
 }
 function load(){
@@ -181,8 +197,9 @@ function load(){
   if(d.inv){for(const m in inv)delete inv[m];for(const m in d.inv)inv[m]=d.inv[m];}
   if(d.dp)for(const k of ['ore','ice','fab'])deep[k]=d.dp[k]|0;
   if(d.own){owned.length=0;for(const i of d.own)if(i>=0&&i<TOOLS.length)owned.push(i);}
+  if(d.ck){cooked.length=0;for(const i of d.ck)if(i>=0&&i<COOK.length&&cooked.indexOf(i)<0)cooked.push(i);offExtra=cooked.reduce((a,i)=>a+COOK[i].a,0);}
   if(d.a==='ore'||d.a==='ice'||d.a==='fab')active=d.a;
-  const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,OFF_CAP));
+  const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,offCapSecs()));
   if(secs<5)return 0;
   if(active==='fab'&&!S.fab.unlocked)active='ore';
   const before={ore:S.ore.lvl,ice:S.ice.lvl,fab:S.fab.lvl};
@@ -231,9 +248,13 @@ function render(){
   renderInv();
   if(Date.now()>toolsAt){toolsAt=Date.now()+500;renderTools();}
   if(Date.now()>deepAt){deepAt=Date.now()+500;renderDeep();}
+  if(Date.now()>cookAt){cookAt=Date.now()+500;renderKitchen();}
+  if(Date.now()>runAt){runAt=Date.now()+500;renderRun();}
 }
 function deepState(k){
-  const c=deepCost(k),m=MAT[k],have=Math.floor(inv[m]||0),capped=S[k].lvl>=CAP;
+  const m=MAT[k],have=Math.floor(inv[m]||0),capped=S[k].lvl>=CAP;
+  if(deep[k]>=DEEP_MAX)return{st:'fully deepened ('+DEEP_MAX+'/'+DEEP_MAX+')',c:0,m:m};
+  const c=deepCost(k);
   if(!capped)return{st:'at cap 20 first',c:c,m:m};
   if(have<c)return{st:'short on '+m+' ('+have+' / '+c+')',c:c,m:m};
   return{st:'READY: tap to deepen',c:c,m:m};
@@ -256,10 +277,79 @@ function renderDeep(){
     if(eff.textContent!==efft)eff.textContent=efft;
     const c=b.querySelector('[data-dcost]'),ct=s.c+' '+s.m+' · '+s.st;
     if(c.textContent!==ct)c.textContent=ct;
-    const cls='tool'+(canDeep(k)?' ready':'');
+    const cls='tool'+(canDeep(k)?' ready':'')+(deep[k]>=DEEP_MAX?' built':'');
     if(b.className!==cls)b.className=cls;
   });
+  const dd=document.getElementById('deep-done');
+  if(dd){
+    const done=deep.ore>=DEEP_MAX&&deep.ice>=DEEP_MAX&&deep.fab>=DEEP_MAX;
+    const txt=done?'every branch fully deepened. deep is finished.':'deepened '+(deep.ore+deep.ice+deep.fab)+' of '+(3*DEEP_MAX)+'.';
+    if(dd.textContent!==txt)dd.textContent=txt;
+  }
 }
+/* ---- kitchen: a second sink. opens when ice is maxed, eats ice, buys offline time ---- */
+function cookOpen(){return S.ice.lvl>=CAP;}
+function canCook(i){
+  if(!cookOpen()||cooked.indexOf(i)>=0)return false;
+  for(const m in COOK[i].c)if((inv[m]||0)<COOK[i].c[m])return false;
+  return true;
+}
+function cookMeal(i){
+  if(!canCook(i))return false;
+  const m=COOK[i],before=offCapSecs();
+  for(const k in m.c)inv[k]-=m.c[k];
+  cooked.push(i);offExtra+=m.a;
+  const txt='Cooked '+m.n+'. Offline cap '+dur(before)+' → '+dur(offCapSecs())+'.';
+  if(cooked.length===COOK.length)log(txt+' The menu is complete: nothing left to cook.');
+  else log(txt);
+  save();return true;
+}
+function mealState(i){
+  const m=COOK[i];
+  if(cooked.indexOf(i)>=0)return{st:'cooked',cls:'tool built'};
+  if(!cookOpen())return{st:'needs space fishing at 20',cls:'tool'};
+  if(!canCook(i))return{st:'short on '+shortList(m.c),cls:'tool'};
+  return{st:'READY: tap to cook',cls:'tool ready'};
+}
+let cookAt=0,runAt=0;
+function renderKitchen(){
+  const box=document.getElementById('kitchen');
+  if(box)box.style.display=(cookOpen()||cooked.length)?'block':'none';
+  const l=document.getElementById('meal-list');
+  if(!l||!box||!cookOpen()&&!cooked.length)return;
+  if(l.children.length!==COOK.length){
+    l.innerHTML=COOK.map((m,i)=>`<button class=tool data-meal="${i}"><span class=nm>${m.n}</span> <span class=eff>· +${Math.round(m.a/60)} min offline</span><br><span class=cost>${costStr(m.c)}</span> <span class=cost data-mst="${i}"></span></button>`).join('');
+  }
+  for(let i=0;i<COOK.length;i++){
+    const b=l.children[i],s=mealState(i);
+    if(b.className!==s.cls)b.className=s.cls;
+    const el=b.querySelector('[data-mst]'),txt='· '+s.st;
+    if(el.textContent!==txt)el.textContent=txt;
+  }
+}
+function progress(){
+  const L=S.ore.lvl+S.ice.lvl+(S.fab.unlocked?S.fab.lvl:0);
+  const D=deep.ore+deep.ice+deep.fab;
+  const parts=[L/(3*CAP),D/(3*DEEP_MAX),owned.length/TOOLS.length,cooked.length/COOK.length];
+  return{L:L,D:D,p:Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100)};
+}
+function renderRun(){
+  const el=document.getElementById('run');
+  if(!el)return;
+  const q=progress();
+  const done=q.p>=100;
+  const txt=done?'<b>RUN ONE COMPLETE</b> · three skills at 20, nine tools, every branch deepened three times, five meals cooked. nothing left on this run.'
+    :'run one '+q.p+'% · skills '+q.L+'/60 · tools '+owned.length+'/'+TOOLS.length+' · deep '+q.D+'/'+(3*DEEP_MAX)+' · kitchen '+cooked.length+'/'+COOK.length;
+  if(el.innerHTML!==txt)el.innerHTML=txt;
+}
+document.getElementById('meal-list').addEventListener('click',e=>{
+  const b=e.target.closest('[data-meal]');if(!b)return;
+  const i=+b.dataset.meal;
+  if(cookMeal(i))render();
+  else log(COOK[i].n+': '+mealState(i).st);
+  renderKitchen();
+});
+
 document.getElementById('deep-list').addEventListener('click',e=>{
   const b=e.target.closest('[data-deep]');if(!b)return;
   const k=b.dataset.deep;
@@ -363,7 +453,7 @@ function bind(id,k){
   b.addEventListener('click',e=>{if(!e.detail)creditTap(k,1);});
 }
 bind('mine','ore');bind('fish','ice');bind('craft','fab');
-if(typeof window!=='undefined')window.__sk={S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,deep,deepCost,canDeep,deepBuild,renderTools:()=>renderTools(),renderDeep:()=>renderDeep(),render:()=>render()};
+if(typeof window!=='undefined')window.__sk={S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,deep,deepCost,canDeep,deepBuild,cookOpen,canCook,cookMeal,mealState,renderKitchen,renderRun,progress,COOK,cooked,DEEP_MAX,offCapSecs,offExtra,renderTools:()=>renderTools(),renderDeep:()=>renderDeep(),render:()=>render()};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
 
@@ -381,7 +471,9 @@ const MAKER=[
 ['nov 19','bug: a capped skill pulled nothing while its line said it was pulling. at 20 it kept the rate but stopped the output'],
 ['nov 19','deep: past cap 20 a skill deepens for its own material, +0.3x yield a step, cost triples. the streak continues instead of ending'],
 ['nov 19','bug: tool buttons were rebuilt twice a second, so a tap that fell on a rebuild did nothing. the list is built once now and the status updates in place'],
-['nov 19','fabrication costs ore now: 1 ore per part. no ore, no parts, no fab progress']];
+['nov 19','fabrication costs ore now: 1 ore per part. no ore, no parts, no fab progress'],
+['nov 19','deep ends. three deepenings per skill and the branch is finished, so 100% is a line you can reach'],
+['nov 19','kitchen: five meals that eat ice and buy offline time. opens when space fishing maxes, so maxing ice gives you a reason to farm ice again']];
 document.getElementById('mlog').innerHTML='<h2>MAKER LOG</h2>'+MAKER.slice().reverse().map(([d,t])=>`<div><span class=d>${d}</span> ${t}</div>`).join('');
 
 const away=load();
