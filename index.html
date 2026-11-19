@@ -22,7 +22,9 @@ button:disabled{opacity:.35;cursor:default}
 .tier b{color:#a8b8d0;font-weight:normal}
 #inv{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#8ea0bb}
 #inv h2,#tools h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
-#tools{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12.5px}
+#tools,#deep{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12.5px}
+#deep h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
+#deep{display:none}
 .tool{display:block;width:100%;text-align:left;margin:0 0 6px;padding:8px 10px;border:1px solid #212a3d;background:#101623;border-radius:4px;color:#8b97ab;font-size:12.5px;line-height:1.4}
 .tool.ready{border-color:#3f7bd6;color:#dbe4f2}
 .tool.built{border-color:#26313f;color:#4d5a6d;background:#0d121b}
@@ -49,12 +51,15 @@ button:disabled{opacity:.35;cursor:default}
 <div class="cap" id="manual"></div>
 <div id="inv"><h2>HOLD</h2><div id="inv-line">nothing yet</div></div>
 <div id="tools"><h2>TOOLS</h2><div id="tool-list"></div></div>
+<div id="deep"><h2>DEEP</h2><div class="cap" style="margin-bottom:8px">past the cap, each deep costs that skill's own material and raises its yield 0.3x. cost triples each time. no reset, no wipe.</div><div id="deep-list"></div></div>
 <div id="log"></div>
 <div id="mlog"></div>
 
 <script>
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
+const DEEP_BASE={ore:20000,ice:20000,fab:5000}, DEEP_MULT=0.3;
 const S={ore:{lvl:1,xp:0},ice:{lvl:1,xp:0},fab:{lvl:1,xp:0,unlocked:false}};
+let deep={ore:0,ice:0,fab:0};
 let capBonus={ore:0,ice:0};
 let inv={},owned=[];
 let active='ore';
@@ -86,7 +91,7 @@ const TOOLS=[
 ];
 function toolBonus(k){let m=1;for(const i of owned)if(TOOLS[i].k===k)m+=TOOLS[i].b;return m;}
 const MAT={ore:'ore',ice:'ice',fab:'parts'};
-function yieldOf(k){return S[k].lvl*toolBonus(k)*gradeMult(k);} // units per minute
+function yieldOf(k){return S[k].lvl*toolBonus(k)*gradeMult(k)*(1+DEEP_MULT*deep[k]);} // units per minute
 function isOwned(i){return owned.indexOf(i)>=0;}
 function canBuild(i){
   const t=TOOLS[i];
@@ -105,13 +110,28 @@ function buildTool(i){
   save();return true;
 }
 
+/* ---- deep: past the cap the same skill keeps going ---- */
+function deepCost(k){return Math.round(DEEP_BASE[k]*Math.pow(3,deep[k]));}
+function canDeep(k){
+  if(k==='fab'&&!S.fab.unlocked)return false;
+  if(S[k].lvl<CAP)return false;
+  return (inv[MAT[k]]||0)>=deepCost(k);
+}
+function deepBuild(k){
+  if(!canDeep(k))return false;
+  const c=deepCost(k);
+  inv[MAT[k]]-=c;deep[k]++;
+  log(`${k} deep ${deep[k]}: ${MAT[k]} yield now ${yieldOf(k).toFixed(1)}/min (${(1+DEEP_MULT*deep[k]).toFixed(2)}x). next deep at ${deepCost(k)} ${MAT[k]}.`);
+  save();return true;
+}
+
 function add(skill,frac,dt){
   const s=S[skill];
   if(skill==='fab'&&!S.fab.unlocked)return;
+  inv[MAT[skill]]=(inv[MAT[skill]]||0)+yieldOf(skill)*frac*dt/60;
   if(s.lvl>=CAP)return;
   const rate=s.lvl+(skill==='fab'?0:(capBonus[skill]||0));
   s.xp+=rate*frac*dt/60;
-  inv[MAT[skill]]=(inv[MAT[skill]]||0)+yieldOf(skill)*frac*dt/60;
   const wasGrade=tierMat(skill);
   while(s.xp>=need(s.lvl)&&s.lvl<CAP){s.xp-=need(s.lvl);s.lvl++;
     const nowGrade=tierMat(skill);
@@ -127,7 +147,7 @@ function renderLog(){document.getElementById('log').innerHTML=logLines.map(t=>`<
 /* ---- save / offline accrual ---- */
 function save(){
   try{
-    localStorage.setItem(KEY,JSON.stringify({v:3,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active}));
+    localStorage.setItem(KEY,JSON.stringify({v:4,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active,dp:deep}));
   }catch(e){}
 }
 function load(){
@@ -139,6 +159,7 @@ function load(){
   if(!S.fab.unlocked)S.fab.unlocked=false;
   if(d.cb)capBonus=d.cb;
   if(d.inv)inv=d.inv;
+  if(d.dp)for(const k of ['ore','ice','fab'])deep[k]=d.dp[k]|0;
   if(d.own)owned=d.own.filter(i=>i>=0&&i<TOOLS.length);
   if(d.a==='ore'||d.a==='ice'||d.a==='fab')active=d.a;
   const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,OFF_CAP));
@@ -160,7 +181,7 @@ function dur(s){
   return h?(h+'h '+(m?m+'m':'')):(m+'m');
 }
 
-let hold=null,last=performance.now(),logLines=[],toolsAt=0;
+let hold=null,last=performance.now(),logLines=[],toolsAt=0,deepAt=0;
 let lastSave=Date.now();
 function tick(){
   const now=performance.now(),dt=Math.min((now-last)/1000,0.5);last=now;
@@ -182,12 +203,34 @@ function render(){
   document.getElementById('fab-lv').textContent=S.fab.unlocked?'L'+f.lvl:'L1';
   document.getElementById('fab-cap').textContent=S.fab.unlocked?(f.lvl<CAP?'cap 20':'CAPPED 20'):'locked (ore10+ice10)';
   document.getElementById('fab-bar').style.width=(S.fab.unlocked?(f.lvl<CAP?Math.min(f.xp/need(f.lvl),1)*100:100):0)+'%';
-  document.getElementById('fab-info').textContent=S.fab.unlocked?(f.lvl<CAP?`${f.xp.toFixed(1)} / ${need(f.lvl).toFixed(1)} to L${f.lvl+1} @ ${f.lvl}/min`:'watching the cap'):'';
+  document.getElementById('fab-info').textContent=S.fab.unlocked?(f.lvl<CAP?`${f.xp.toFixed(1)} / ${need(f.lvl).toFixed(1)} to L${f.lvl+1} @ ${f.lvl}/min`:`pulling ${yieldOf('fab').toFixed(1)} parts/min · deep ${deep.fab} · next deep ${deepCost('fab')} parts`):'';
   const nm={ore:'Ore',ice:'Space fishing',fab:'Fabrication'}[active];
   const capped=S[active].lvl>=CAP;
   document.getElementById('manual').textContent=(capped?`${nm} is capped. pick another skill.`:`only ${nm} is ticking. tap another button to switch.`)+` hands-on so far: +${capBonus.ore.toFixed(2)} ore / +${capBonus.ice.toFixed(2)} ice cap`;
   renderInv();
   if(Date.now()>toolsAt){toolsAt=Date.now()+500;renderTools();}
+  if(Date.now()>deepAt){deepAt=Date.now()+500;renderDeep();}
+}
+function renderDeep(){
+  const any=(S.ore.lvl>=CAP)||(S.ice.lvl>=CAP)||(S.fab.unlocked&&S.fab.lvl>=CAP)||(deep.ore+deep.ice+deep.fab>0);
+  const box=document.getElementById('deep');
+  if(box)box.style.display=any?'block':'none';
+  if(!any)return;
+  let h='';
+  for(const k of ['ore','ice','fab']){
+    if(k==='fab'&&!S.fab.unlocked)continue;
+    const c=deepCost(k),m=MAT[k],have=Math.floor(inv[m]||0),capped=S[k].lvl>=CAP;
+    let st;
+    if(!capped)st='at cap 20 first';
+    else if(have<c)st='short on '+m+' ('+have+' / '+c+')';
+    else st='READY: tap to deepen';
+    const cls='tool'+(canDeep(k)?' ready':'');
+    h+=`<button class="${cls}" data-deep="${k}"><span class=nm>${k} deep ${deep[k]}</span> <span class=eff>· ${(1+DEEP_MULT*deep[k]).toFixed(2)}x now, ${(1+DEEP_MULT*(deep[k]+1)).toFixed(2)}x next</span><br><span class=cost>${c} ${m} · ${st}</span></button>`;
+  }
+  const l=document.getElementById('deep-list');
+  if(!l)return;
+  l.innerHTML=h;
+  for(const b of l.querySelectorAll('[data-deep]'))b.addEventListener('click',()=>{deepBuild(b.dataset.deep);render();renderDeep();});
 }
 function set(k){
   const s=S[k];
@@ -195,7 +238,7 @@ function set(k){
   document.getElementById(k+'-cap').textContent=(s.lvl<CAP?'cap 20':'CAPPED 20');
   document.getElementById(k+'-bar').style.width=(s.lvl<CAP?Math.min(s.xp/need(s.lvl),1)*100:100)+'%';
   const y=yieldOf(k).toFixed(1);
-  document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min · pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min`:`pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min, watching the cap`;
+  document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min · pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min`:`pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min · deep ${deep[k]} · next deep ${deepCost(k)} ${MAT[k]}`;
   if(k==='fab'){
     document.getElementById('fab-tier').textContent=S.fab.unlocked?'makes parts · each tool needs parts':'';
   }else{
@@ -240,6 +283,7 @@ function bind(id,k){
   let t0=0;
   const press=e=>{
     e.preventDefault();
+    if(k==='fab'&&!S.fab.unlocked)return;
     active=k;
     if(hold&&hold!==k)hold=null;
     hold=k;t0=performance.now();b.classList.add('on');
@@ -257,8 +301,8 @@ function bind(id,k){
   b.addEventListener('lostpointercapture',release);
   b.addEventListener('click',e=>{if(!e.detail)creditTap(k,1);});
 }
-bind('mine','ore');bind('fish','ice');
-if(typeof window!=='undefined')window.__sk={S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,renderTools:()=>renderTools(),render:()=>render()};
+bind('mine','ore');bind('fish','ice');bind('craft','fab');
+if(typeof window!=='undefined')window.__sk={S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,deep,deepCost,canDeep,deepBuild,renderTools:()=>renderTools(),renderDeep:()=>renderDeep(),render:()=>render()};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
 
@@ -271,7 +315,10 @@ const MAKER=[
 ['nov 18','while away, only the skill you left running ticks. 50%, 8h cap'],
 ['nov 18','re-timed on the served file, not on paper. one skill L1 to L20 is 127 min'],
 ['nov 18','tiers: grit, nickel, silicate, heavy, void. a better grade every five levels, 1.5x yield each step'],
-['nov 18','nine tools. the cost comes from one skill and the bonus lands on another. parts are the middle']];
+['nov 18','nine tools. the cost comes from one skill and the bonus lands on another. parts are the middle'],
+['nov 19','bug: the fab button was never wired up. fabrication could not be started at all, so the tools that need parts never opened'],
+['nov 19','bug: a capped skill pulled nothing while its line said it was pulling. at 20 it kept the rate but stopped the output'],
+['nov 19','deep: past cap 20 a skill deepens for its own material, +0.3x yield a step, cost triples. the streak continues instead of ending']];
 document.getElementById('mlog').innerHTML='<h2>MAKER LOG</h2>'+MAKER.slice().reverse().map(([d,t])=>`<div><span class=d>${d}</span> ${t}</div>`).join('');
 
 const away=load();
