@@ -28,6 +28,8 @@ button:disabled{opacity:.35;cursor:default}
 .tool{display:block;width:100%;text-align:left;margin:0 0 6px;padding:8px 10px;border:1px solid #212a3d;background:#101623;border-radius:4px;color:#8b97ab;font-size:12.5px;line-height:1.4}
 .tool.ready{border-color:#3f7bd6;color:#dbe4f2}
 .tool.built{border-color:#26313f;color:#4d5a6d;background:#0d121b}
+.tool[hidden]{display:none}
+#built-line{margin:2px 0 6px}
 .tool .nm{color:#cfd6e4}
 .tool.built .nm{color:#5f6d82}
 .tool:active{border-color:#3f7bd6;background:#16203008}
@@ -51,7 +53,7 @@ button:disabled{opacity:.35;cursor:default}
 </div>
 <div class="cap" id="manual"></div>
 <div id="inv"><h2>HOLD</h2><div id="inv-line">nothing yet</div></div>
-<div id="tools"><h2>TOOLS</h2><div id="tool-list"></div></div>
+<div id="tools"><h2>TOOLS</h2><div class="cap" id="built-line"></div><div id="tool-list"></div></div>
 <div id="deep"><h2>DEEP</h2><div class="cap" style="margin-bottom:8px">past the cap, each deep costs that skill's own material and raises its yield 0.3x. cost triples each time. no reset, no wipe.</div><div id="deep-list"></div></div>
 <div id="log"></div>
 <div id="mlog"></div>
@@ -296,6 +298,15 @@ function toolState(i){
   if(!canBuild(i))return{st:'short on '+shortList(t.cost),cls:'tool'};
   return{st:'READY — tap to build',cls:'tool ready'};
 }
+/* built tools collapse into one line: the list is a catalog, not a trophy case */
+function builtLine(){
+  const per={};
+  for(const i of owned){const t=TOOLS[i];per[t.k]=(per[t.k]||0)+t.b;}
+  const keys=Object.keys(per);
+  if(!owned.length)return '';
+  if(owned.length===TOOLS.length)return 'all '+TOOLS.length+' built · '+keys.map(k=>k+' +'+Math.round(per[k]*100)+'%').join(' · ')+' · nothing left to buy';
+  return 'built '+owned.length+'/'+TOOLS.length+' · '+keys.map(k=>k+' +'+Math.round(per[k]*100)+'%').join(' · ');
+}
 /* built once, updated in place: rebuilding the buttons every 500ms ate taps on a phone */
 function renderTools(){
   const list=document.getElementById('tool-list');
@@ -307,7 +318,10 @@ function renderTools(){
     if(b.className!==s.cls)b.className=s.cls;
     const el=b.querySelector('[data-st]'),txt='· '+s.st;
     if(el.textContent!==txt)el.textContent=txt;
+    if(b.hidden!==isOwned(i))b.hidden=isOwned(i);
   }
+  const bl=document.getElementById('built-line'),blt=builtLine();
+  if(bl&&bl.textContent!==blt)bl.textContent=blt;
 }
 document.getElementById('tool-list').addEventListener('click',e=>{
   const b=e.target.closest('[data-tool]');if(!b)return;
