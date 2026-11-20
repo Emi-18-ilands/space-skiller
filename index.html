@@ -39,6 +39,10 @@ button:disabled{opacity:.35;cursor:default}
 .tool:active{border-color:#3f7bd6;background:#16203008}
 .tool .eff{color:#8ea0bb}
 .tool .cost{color:#6b7688}
+#nodes{margin-top:16px;border-top:1px solid #1c2333;padding-top:10px;font-size:12.5px}
+#nodes h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
+.tool.sel{border-color:#4a6699;background:#16233a;color:#dbe4f2}
+.tool.locked{opacity:.45}
 #mlog{margin-top:24px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#7c879b}
 #mlog h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
 #mlog div{margin:2px 0}
@@ -57,6 +61,7 @@ button:disabled{opacity:.35;cursor:default}
 <button id="craft" disabled>⚙ Fab a part</button>
 </div>
 <div class="cap" id="manual"></div>
+<div id="nodes"><h2>MINING</h2><div class="cap" style="margin-bottom:8px">pick a seam. a thick seam piles ore faster, a thin one teaches the skill faster. gems only come while you mine by hand, and the thin seams find more.</div><div id="node-list"></div></div>
 <div id="inv"><h2>HOLD</h2><div id="inv-line">nothing yet</div></div>
 <div id="tools"><h2>TOOLS</h2><div class="cap" id="built-line"></div><div id="tool-list"></div></div>
 <div id="deep"><h2>DEEP</h2><div class="cap" style="margin-bottom:8px">past the cap, each deep costs that skill's own material and raises its yield 0.3x. cost triples each time. three deepenings and that skill is finished. no reset, no wipe.</div><div id="deep-list"></div><div class="cap" id="deep-done" style="margin-top:6px"></div></div>
@@ -67,6 +72,12 @@ button:disabled{opacity:.35;cursor:default}
 <script>
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
 const DEEP_BASE={ore:3000,ice:3000,fab:1000}, DEEP_MULT=0.3, DEEP_MAX=3;
+const NODES=[
+ {n:'grit seam',  gate:1,  y:1.20, xp:1.00, p:0.005},
+ {n:'nickel rib', gate:5,  y:0.95, xp:1.35, p:0.009},
+ {n:'heavy vein', gate:15, y:0.60, xp:1.90, p:0.016}
+];
+const GEM_GUAR=240, GEM_XP=0.02; // seconds of hands-on mining, and the share of a level a gem is worth
 const COOK=[
  {n:'Frost broth', c:{ice:1000}, a:1800},
  {n:'Ice soup', c:{ice:3000,ore:1000}, a:1800},
@@ -81,6 +92,9 @@ let deep={ore:0,ice:0,fab:0};
 let capBonus={ore:0,ice:0};
 let inv={},owned=[];
 let active='ore';
+let node=0,gems=0,dryT=0;
+function nodeOpen(i){return S.ore.lvl>=NODES[i].gate;}
+function oreYield(){return yieldOf('ore')*NODES[node].y;}
 const need=l=>l<2?3:10*Math.pow(B,l-1);
 
 /* ---- tiers: the ore gets a name as the skill gets better ---- */
@@ -164,10 +178,20 @@ function add(skill,frac,dt){
     gate=want>0?made/want:1;
     fabStarve(want,made);
   }else{
-    inv[MAT[skill]]=(inv[MAT[skill]]||0)+yieldOf(skill)*frac*dt/60;
+    const ym=skill==='ore'?NODES[node].y:1;
+    inv[MAT[skill]]=(inv[MAT[skill]]||0)+yieldOf(skill)*ym*frac*dt/60;
+  }
+  // gems are hands-on only: away time pays ore, not luck
+  if(skill==='ore'&&s.lvl<CAP&&frac>=1){
+    dryT+=dt;
+    if(dryT>=GEM_GUAR||Math.random()<NODES[node].p*dt){
+      const g=Math.max(1,Math.round(need(s.lvl)*GEM_XP*NODES[node].xp));
+      dryT=0;gems++;s.xp+=g;
+      log('gem in the '+NODES[node].n+': +'+g+' xp. '+gems+' found.');
+    }
   }
   if(s.lvl>=CAP)return;
-  const rate=(s.lvl+(skill==='fab'?0:(capBonus[skill]||0)))*gate;
+  const rate=(s.lvl+(skill==='fab'?0:(capBonus[skill]||0)))*gate*(skill==='ore'?NODES[node].xp:1);
   s.xp+=rate*frac*dt/60;
   const wasGrade=tierMat(skill);
   while(s.xp>=need(s.lvl)&&s.lvl<CAP){s.xp-=need(s.lvl);s.lvl++;
@@ -184,7 +208,7 @@ function renderLog(){document.getElementById('log').innerHTML=logLines.map(t=>`<
 /* ---- save / offline accrual ---- */
 function save(){
   try{
-    localStorage.setItem(KEY,JSON.stringify({v:5,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active,dp:deep,ck:cooked}));
+    localStorage.setItem(KEY,JSON.stringify({v:6,S:S,cb:capBonus,inv:inv,own:owned,t:Date.now(),a:active,dp:deep,ck:cooked,nd:node,gm:gems,dr:dryT}));
   }catch(e){}
 }
 function load(){
@@ -200,6 +224,9 @@ function load(){
   if(d.own){owned.length=0;for(const i of d.own)if(i>=0&&i<TOOLS.length)owned.push(i);}
   if(d.ck){cooked.length=0;for(const i of d.ck)if(i>=0&&i<COOK.length&&cooked.indexOf(i)<0)cooked.push(i);offExtra=cooked.reduce((a,i)=>a+COOK[i].a,0);}
   if(d.a==='ore'||d.a==='ice'||d.a==='fab')active=d.a;
+  if(typeof d.nd==='number'&&d.nd>=0&&d.nd<NODES.length&&S.ore.lvl>=NODES[d.nd].gate)node=d.nd;
+  if(typeof d.gm==='number')gems=d.gm;
+  if(typeof d.dr==='number')dryT=d.dr;
   const secs=Math.max(0,Math.min((Date.now()-(d.t||Date.now()))/1000,offCapSecs()));
   if(secs<5)return 0;
   if(active==='fab'&&!S.fab.unlocked)active='ore';
@@ -247,7 +274,7 @@ function render(){
   const capped=S[active].lvl>=CAP;
   document.getElementById('manual').textContent=(capped?`${nm} is capped. pick another skill.`:`only ${nm} is ticking. tap another button to switch.`)+` hands-on so far: +${capBonus.ore.toFixed(2)} ore / +${capBonus.ice.toFixed(2)} ice cap`;
   renderInv();
-  if(Date.now()>toolsAt){toolsAt=Date.now()+500;renderTools();}
+  if(Date.now()>toolsAt){toolsAt=Date.now()+500;renderTools();renderNodes();}
   if(Date.now()>deepAt){deepAt=Date.now()+500;renderDeep();}
   if(Date.now()>cookAt){cookAt=Date.now()+500;renderKitchen();}
   if(Date.now()>runAt){runAt=Date.now()+500;renderRun();}
@@ -358,18 +385,41 @@ document.getElementById('deep-list').addEventListener('click',e=>{
   else log(k+' deep: '+deepState(k).st);
   renderDeep();
 });
+function renderNodes(){
+  const list=document.getElementById('node-list');
+  if(!list)return;
+  if(list.children.length!==NODES.length){
+    list.innerHTML=NODES.map((n,i)=>`<button class=tool data-node="${i}"><span class=nm>${n.n}</span> <span class=eff>· ${n.y.toFixed(2)}x ore, ${n.xp.toFixed(2)}x xp</span><br><span class=cost data-nst="${i}"></span></button>`).join('');
+  }
+  NODES.forEach((n,i)=>{
+    const b=list.children[i],open=nodeOpen(i);
+    const st=b.querySelector('[data-nst]');
+    const t=open?'· tap to switch':'· needs ore L'+n.gate;
+    if(st&&st.textContent!==t)st.textContent=t;
+    const cls='tool'+(i===node?' sel':'')+(open?'':' locked');
+    if(b.className!==cls)b.className=cls;
+  });
+}
+function pickNode(i){
+  if(i===node)return false;
+  if(!nodeOpen(i)){log('the '+NODES[i].n+' needs ore L'+NODES[i].gate+'.');return false;}
+  node=i;dryT=0;
+  log('mining the '+NODES[i].n+' now: '+NODES[i].y.toFixed(2)+'x ore, '+NODES[i].xp.toFixed(2)+'x xp.');
+  return true;
+}
 function set(k){
   const s=S[k];
   document.getElementById(k+'-lv').textContent='L'+s.lvl;
   document.getElementById(k+'-cap').textContent=(s.lvl<CAP?'cap 20':'CAPPED 20');
   document.getElementById(k+'-bar').style.width=(s.lvl<CAP?Math.min(s.xp/need(s.lvl),1)*100:100)+'%';
-  const y=yieldOf(k).toFixed(1);
+  const y=(k==='ore'?oreYield():yieldOf(k)).toFixed(1);
   document.getElementById(k+'-info').textContent=s.lvl<CAP?`${s.xp.toFixed(1)} / ${need(s.lvl).toFixed(1)} to L${s.lvl+1} @ ${s.lvl}/min · pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min`:`pulling ${y} ${k==='fab'?'parts':tierMat(k)}/min · deep ${deep[k]} · next deep ${deepCost(k)} ${MAT[k]}`;
   if(k==='fab'){
     document.getElementById('fab-tier').textContent=S.fab.unlocked?'makes parts · 1 ore per part · each tool needs parts':'';
   }else{
     const nx=tierNext(k);
-    document.getElementById(k+'-tier').innerHTML='pulling <b>'+tierMat(k)+'</b>'+(nx?' · next: <b>'+nx.n+'</b> at L'+nx.l:' · last tier');
+    const extra=k==='ore'?' · gems '+gems+(s.lvl<CAP?' (one at least every '+(GEM_GUAR/60)+'m of mining)':''):'';
+    document.getElementById(k+'-tier').innerHTML='pulling <b>'+tierMat(k)+'</b>'+(nx?' · next: <b>'+nx.n+'</b> at L'+nx.l:' · last tier')+extra;
   }
 }
 function renderInv(){
@@ -414,6 +464,15 @@ function renderTools(){
   const bl=document.getElementById('built-line'),blt=builtLine();
   if(bl&&bl.textContent!==blt)bl.textContent=blt;
 }
+function nodeListClick(e){
+  const b=e.target&&e.target.closest?e.target.closest('[data-node]'):null;
+  if(!b)return false;
+  const ok=pickNode(+b.dataset.node);
+  if(ok){render();save();}
+  renderNodes();
+  return ok;
+}
+document.getElementById('node-list').addEventListener('click',nodeListClick);
 document.getElementById('tool-list').addEventListener('click',e=>{
   const b=e.target.closest('[data-tool]');if(!b)return;
   const i=+b.dataset.tool;
@@ -454,7 +513,7 @@ function bind(id,k){
   b.addEventListener('click',e=>{if(!e.detail)creditTap(k,1);});
 }
 bind('mine','ore');bind('fish','ice');bind('craft','fab');
-if(typeof window!=='undefined')window.__sk={S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,deep,deepCost,canDeep,deepBuild,cookOpen,canCook,cookMeal,mealState,renderKitchen,renderRun,progress,COOK,cooked,DEEP_MAX,offCapSecs,offExtra,renderTools:()=>renderTools(),renderDeep:()=>renderDeep(),render:()=>render()};
+if(typeof window!=='undefined')window.__sk={NODES,GEM_GUAR,oreYield,nodeOpen,pickNode,getNode:()=>node,nodeListClick,renderNodes:()=>renderNodes(),getGems:()=>gems,getDry:()=>dryT,S,capBonus,inv,owned,creditTap,add,need,TOOLS,buildTool,canBuild,toolBonus,yieldOf,tierMat,tierNext,deep,deepCost,canDeep,deepBuild,cookOpen,canCook,cookMeal,mealState,renderKitchen,renderRun,progress,COOK,cooked,DEEP_MAX,offCapSecs,offExtra,renderTools:()=>renderTools(),renderDeep:()=>renderDeep(),render:()=>render()};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
 window.addEventListener('pagehide',save);
 
@@ -474,7 +533,8 @@ const MAKER=[
 ['nov 19','bug: tool buttons were rebuilt twice a second, so a tap that fell on a rebuild did nothing. the list is built once now and the status updates in place'],
 ['nov 19','fabrication costs ore now: 1 ore per part. no ore, no parts, no fab progress'],
 ['nov 19','deep ends. three deepenings per skill and the branch is finished, so 100% is a line you can reach'],
-['nov 19','kitchen: five meals that eat ice and buy offline time. opens when space fishing maxes, so maxing ice gives you a reason to farm ice again']];
+['nov 19','kitchen: five meals that eat ice and buy offline time. opens when space fishing maxes, so maxing ice gives you a reason to farm ice again'],
+['nov 20','mining has three seams now: a thick one piles ore, a thin one levels you, and the gems only sit in the thin ones. pick per session, not once']];
 document.getElementById('mlog').innerHTML='<h2>MAKER LOG</h2>'+MAKER.slice().reverse().map(([d,t])=>`<div><span class=d>${d}</span> ${t}</div>`).join('');
 
 const away=load();
