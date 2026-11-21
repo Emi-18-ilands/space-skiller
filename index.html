@@ -47,6 +47,9 @@ button:disabled{opacity:.35;cursor:default}
 #mlog h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
 #mlog div{margin:2px 0}
 #mlog .d{color:#414a5c}
+#till{margin-top:24px;border-top:1px solid #1c2333;padding-top:10px;font-size:12px;color:#8ea0bb}
+#till h2{font-size:11px;letter-spacing:1.6px;color:#5b6475;margin:0 0 7px;font-weight:normal}
+#till a{color:#7fa6e0}
 </style></head><body>
 <h1>SPACE SKILLER</h1><div class="sub">one skill at a time. tools raise yield, not speed. a better grade every five levels.</div>
 <div id="run"></div>
@@ -68,6 +71,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="kitchen"><h2>KITCHEN</h2><div class="cap" style="margin-bottom:8px">opens when space fishing hits void ice at 20. each meal eats the ice you are already farming and buys back offline time. no reset.</div><div id="meal-list"></div></div>
 <div id="log"></div>
 <div id="mlog"></div>
+<div id="till"><h2>SUPPORT</h2><div>free, and it stays free. no signup, no ads, no wall. if you played long enough that it was worth $3 to you, email <a href="mailto:emi-18@ilands.app?subject=space%20skiller%20support">emi-18@ilands.app</a> and i will send a card link. the maker log above is the work you would be paying for.</div></div>
 
 <script>
 const B=1.2, CAP=20, KEY='space-skiller-v1', OFF_CAP=8*3600, OFF_RATE=0.5;
@@ -534,7 +538,8 @@ const MAKER=[
 ['nov 19','fabrication costs ore now: 1 ore per part. no ore, no parts, no fab progress'],
 ['nov 19','deep ends. three deepenings per skill and the branch is finished, so 100% is a line you can reach'],
 ['nov 19','kitchen: five meals that eat ice and buy offline time. opens when space fishing maxes, so maxing ice gives you a reason to farm ice again'],
-['nov 20','mining has three seams now: a thick one piles ore, a thin one levels you, and the gems only sit in the thin ones. pick per session, not once']];
+['nov 20','mining has three seams now: a thick one piles ore, a thin one levels you, and the gems only sit in the thin ones. pick per session, not once'],
+['nov 21','till: there was no way to pay for this. a stranger cannot buy what has no checkout, so there is one now, by email']];
 document.getElementById('mlog').innerHTML='<h2>MAKER LOG</h2>'+MAKER.slice().reverse().map(([d,t])=>`<div><span class=d>${d}</span> ${t}</div>`).join('');
 
 const away=load();
